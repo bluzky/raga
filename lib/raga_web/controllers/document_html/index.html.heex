@@ -1,0 +1,35 @@
+<.header>
+  Documents
+  <:actions>
+    <.link href={~p"/documents/new"}>
+      <.button>New Document</.button>
+    </.link>
+  </:actions>
+</.header>
+
+<.table id="documents" rows={@documents}>
+  <:col :let={document} label="Title"><%= document.title %></:col>
+  <:col :let={document} label="Content Preview">
+    <%= String.slice(document.content, 0, 100) <> (if String.length(document.content) > 100, do: "...", else: "") %>
+  </:col>
+  <:col :let={document} label="Date">
+    <%= Calendar.strftime(document.inserted_at, "%Y-%m-%d %H:%M") %>
+  </:col>
+  <:action :let={document}>
+    <.link navigate={~p"/documents/#{document}"}>View</.link>
+  </:action>
+  <:action :let={document}>
+    <.link navigate={~p"/documents/#{document}/edit"}>Edit</.link>
+  </:action>
+  <:action :let={document}>
+    <.link href={~p"/documents/#{document}"} method="delete" data-confirm="Are you sure?">
+      Delete
+    </.link>
+  </:action>
+</.table>
+
+<div class="mt-6">
+  <.link navigate={~p"/query"}>
+    <.button>Go to Query Interface</.button>
+  </.link>
+</div>

@@ -1,0 +1,34 @@
+<.header>
+  Document <%= @document.title %>
+  <:actions>
+    <.link href={~p"/documents/#{@document}/edit"}>
+      <.button>Edit document</.button>
+    </.link>
+  </:actions>
+</.header>
+
+<.list>
+  <:item title="Title"><%= @document.title %></:item>
+  <:item title="Date Added">
+    <%= Calendar.strftime(@document.inserted_at, "%Y-%m-%d %H:%M") %>
+  </:item>
+</.list>
+
+<.header class="mt-6">Content</.header>
+<div class="mt-2 whitespace-pre-wrap bg-gray-50 p-4 rounded-md">
+  <%= @document.content %>
+</div>
+
+<.header class="mt-6">Document Chunks (<%= length(@document.chunks) %>)</.header>
+<div class="mt-2">
+  <%= for {chunk, i} <- Enum.with_index(@document.chunks) do %>
+    <div class="mb-4 p-4 border rounded-md">
+      <div class="font-semibold mb-2">Chunk #<%= i + 1 %></div>
+      <div class="whitespace-pre-wrap bg-gray-50 p-3 rounded-md">
+        <%= chunk.content %>
+      </div>
+    </div>
+  <% end %>
+</div>
+
+<.back navigate={~p"/documents"}>Back to documents</.back>

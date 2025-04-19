@@ -1,0 +1,8 @@
+<.header>
+  Edit Document <%= @document.title %>
+  <:subtitle>Edit title and content (document chunks will be regenerated)</:subtitle>
+</.header>
+
+<.document_form changeset={@changeset} action={~p"/documents/#{@document}"} />
+
+<.back navigate={~p"/documents"}>Back to documents</.back>
