@@ -2,10 +2,11 @@ defmodule Raga.RAG.Processor do
   @moduledoc """
   Module for processing documents and queries for the RAG system
   """
-  
+
   alias Raga.Repo
   alias Raga.RAG.{Document, DocumentChunk, Query}
-  alias Raga.Groq.Client
+  alias Raga.Ollama.Client, as: OllamaClient
+  alias Raga.Groq.Client, as: GroqClient
 
   @doc """
   Chunk size in characters for splitting documents
@@ -18,26 +19,27 @@ defmodule Raga.RAG.Processor do
   Process a document by:
   1. Creating document record
   2. Splitting content into chunks
-  3. Generating embeddings for each chunk
+  3. Generating embeddings for each chunk using Ollama
   4. Saving chunks with embeddings
   """
-  def process_document(%{title: title, content: content}) do
+  def process_document(%{"title" => title, "content" => content}) do
     # Start transaction to ensure all parts succeed or fail together
+
     Repo.transaction(fn ->
       # Create document record
-      {:ok, document} = 
+      {:ok, document} =
         %Document{}
         |> Document.changeset(%{title: title, content: content})
         |> Repo.insert()
 
       # Split content into chunks
       chunks = split_into_chunks(content)
-      
+
       # Process each chunk
       chunks
       |> Enum.with_index()
       |> Enum.map(fn {chunk_content, index} ->
-        case Client.generate_embeddings(chunk_content) do
+        case OllamaClient.generate_embeddings(chunk_content) do
           {:ok, embedding} ->
             # Create chunk with embedding
             %DocumentChunk{}
@@ -62,17 +64,17 @@ defmodule Raga.RAG.Processor do
 
   @doc """
   Process a query by:
-  1. Generating embedding for the query
+  1. Generating embedding for the query using Ollama
   2. Finding relevant document chunks
-  3. Generating a response using the LLM
+  3. Generating a response using the Groq LLM
   4. Saving the query and response
   """
   def process_query(query_text) do
-    # Generate embedding for the query
-    case Client.generate_embeddings(query_text) do
+    # Generate embedding for the query using Ollama
+    case OllamaClient.generate_embeddings(query_text) do
       {:ok, embedding} ->
         # Find most relevant chunks
-        chunks = 
+        chunks =
           embedding
           |> DocumentChunk.nearest_chunks(5)
           |> Repo.all()
@@ -81,7 +83,7 @@ defmodule Raga.RAG.Processor do
           {:error, "No relevant documents found"}
         else
           # Generate response from Groq
-          case Client.generate_response(query_text, chunks) do
+          case GroqClient.generate_response(query_text, chunks) do
             {:ok, response} ->
               # Save query and response
               {:ok, query} =
@@ -111,7 +113,7 @@ defmodule Raga.RAG.Processor do
   def split_into_chunks(text) do
     # Split by paragraphs first to try to keep coherent chunks
     paragraphs = String.split(text, ~r/\n\s*\n/)
-    
+
     build_chunks(paragraphs, "", [], @chunk_size, @chunk_overlap)
   end
 
@@ -124,10 +126,17 @@ defmodule Raga.RAG.Processor do
   defp build_chunks([paragraph | rest], current_chunk, chunks, chunk_size, chunk_overlap) do
     # If adding this paragraph would exceed the chunk size, start a new chunk
     new_chunk = if current_chunk == "", do: paragraph, else: current_chunk <> "\n\n" <> paragraph
-    
+
     if String.length(new_chunk) > chunk_size do
       overlap = String.slice(current_chunk, -chunk_overlap..-1)
-      build_chunks([paragraph | rest], overlap, chunks ++ [current_chunk], chunk_size, chunk_overlap)
+
+      build_chunks(
+        [paragraph | rest],
+        overlap,
+        chunks ++ [current_chunk],
+        chunk_size,
+        chunk_overlap
+      )
     else
       build_chunks(rest, new_chunk, chunks, chunk_size, chunk_overlap)
     end
@@ -138,7 +147,7 @@ defmodule Raga.RAG.Processor do
   """
   defp extract_sources(chunks) do
     chunks
-    |> Enum.map(fn %{document_id: id, document_title: title} -> 
+    |> Enum.map(fn %{document_id: id, document_title: title} ->
       %{id: id, title: title}
     end)
     |> Enum.uniq_by(fn %{id: id} -> id end)

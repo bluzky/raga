@@ -14,8 +14,9 @@ defmodule Raga.Application do
       {Phoenix.PubSub, name: Raga.PubSub},
       # Start the Finch HTTP client for sending emails and API requests
       {Finch, name: Raga.Finch},
-      # Start Groq client
-      Raga.Groq.Client,
+      # Start API clients
+      Raga.Ollama.Client,  # Ollama for local embeddings
+      Raga.Groq.Client,    # Groq for LLM responses
       # Start to serve requests, typically the last entry
       RagaWeb.Endpoint
     ]

@@ -1,11 +1,12 @@
 # Raga - Retrieval-Augmented Generation System
 
-A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) using Phoenix, PostgreSQL with pgvector, and the Groq API.
+A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) using Phoenix, PostgreSQL with pgvector, local Ollama embeddings, and the Groq API.
 
 ## Core Technologies
 
 - Phoenix/Elixir for the web framework
 - PostgreSQL with pgvector extension for vector storage
+- Ollama with nomic-embed-text for local embedding generation
 - Groq API for LLM responses
 
 ## Features
@@ -28,7 +29,8 @@ A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) usi
 
 1. Elixir and Erlang installed
 2. PostgreSQL with pgvector extension
-3. A Groq API key
+3. Ollama for local embeddings
+4. A Groq API key
 
 ### PostgreSQL with pgvector
 
@@ -48,6 +50,23 @@ Then connect to PostgreSQL and enable the extension:
 ```sql
 CREATE EXTENSION vector;
 ```
+
+### Install Ollama for Local Embeddings
+
+1. Install Ollama from [ollama.ai](https://ollama.ai) or run:
+   ```bash
+   curl -fsSL https://ollama.ai/install.sh | sh
+   ```
+
+2. Pull the embedding model:
+   ```bash
+   ollama pull nomic-embed-text
+   ```
+
+3. Make sure Ollama is running:
+   ```bash
+   ollama serve
+   ```
 
 ### Application Setup
 
@@ -83,7 +102,7 @@ CREATE EXTENSION vector;
 ### Managing Documents
 
 1. Add documents through the `/documents/new` page
-2. Each document will be chunked and embedded automatically
+2. Each document will be chunked and embedded using Ollama locally
 3. You can view, edit, or delete documents from the document list
 
 ### Querying Documents
@@ -91,40 +110,43 @@ CREATE EXTENSION vector;
 1. Go to the query interface at `/query`
 2. Enter your question in the text field
 3. The system will:
-   - Process your query
+   - Generate an embedding for your query using Ollama locally
    - Perform a similarity search to find relevant document chunks
    - Send the query and retrieved context to Groq API
    - Display the response with source documents
 
-## System Architecture
+## Architecture
 
 1. **Database:**
-   - Schema for documents (id, title, content, date)
-   - Schema for embeddings (id, document_id, embedding_vector)
-   - pgvector setup for vector similarity
+   - Document storage with title and content
+   - Document chunking with vector embeddings
+   - Query history tracking
 
-2. **Groq API Integration:**
-   - HTTP client to call Groq API
-   - Text processing for queries and responses
+2. **Embedding Generation:**
+   - Local embedding generation using Ollama with nomic-embed-text
+   - No need for external API calls for embeddings
+   - Privacy-preserving as text never leaves your machine
 
-3. **Phoenix Components:**
-   - Controllers and views for document management
-   - LiveView for the query interface
-   - Simple responsive UI
+3. **LLM Integration:**
+   - Groq API for high-quality responses
+   - Context enrichment with retrieved documents
+   - Source attribution in responses
 
-4. **Helper Modules:**
-   - Document chunking logic
-   - Vector similarity calculation
-   - Context preparation for LLM
+4. **UI Components:**
+   - Document management interface
+   - Interactive query interface with LiveView
+   - Real-time feedback during processing
 
-## Implementation Notes
+## Limitations and Future Enhancements
 
-This implementation uses a deterministic vector generation approach for text embeddings since Groq doesn't currently have a dedicated embeddings API. In a production system, you would typically use a dedicated embeddings API from providers like OpenAI, Cohere, or others.
-
-## Limitations
-
-This is a learning project and has the following limitations:
+This is a learning project with some limitations:
 
 - No authentication or user management
 - Limited error handling
-- Simple embedding generation (not using a true embedding model)
+- Basic document chunking strategy
+
+Potential enhancements:
+- Use Ollama for both embedding and LLM (fully offline operation)
+- Implement more sophisticated chunking strategies
+- Add user authentication
+- Add document categorization

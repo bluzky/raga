@@ -6,7 +6,7 @@ defmodule Raga.Repo.Migrations.CreateDocumentChunks do
       add :document_id, references(:documents, on_delete: :delete_all), null: false
       add :content, :text, null: false
       add :chunk_index, :integer, null: false
-      add :embedding, :vector, size: 1536  # Groq embeddings are 1536 dimensions
+      add :embedding, :vector, size: 768  # Groq embeddings are 1536 dimensions
 
       timestamps()
     end

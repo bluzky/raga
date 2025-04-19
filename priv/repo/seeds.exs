@@ -16,11 +16,11 @@ alias Raga.RAG.Processor
 # Check if we have any documents already
 if Enum.empty?(RAG.list_documents()) do
   IO.puts("Creating sample document...")
-  
+
   # Sample document about AI and RAG systems
   sample_doc = %{
-    title: "Introduction to Retrieval-Augmented Generation",
-    content: """
+    "title" => "Introduction to Retrieval-Augmented Generation",
+    "content" => """
     # Retrieval-Augmented Generation (RAG)
 
     Retrieval-Augmented Generation (RAG) is a technique that enhances Large Language Models (LLMs) by combining them with information retrieval systems. This approach addresses some of the key limitations of traditional LLMs, such as providing access to more up-to-date information, reducing hallucinations, and enabling the use of private or domain-specific knowledge.
@@ -40,11 +40,11 @@ if Enum.empty?(RAG.list_documents()) do
     RAG systems offer several advantages over standalone LLMs:
 
     - **Reduced Hallucinations**: By grounding responses in retrieved facts, RAG systems are less likely to generate incorrect information.
-    
+
     - **Access to Current Information**: RAG can utilize knowledge bases that are regularly updated, overcoming the "knowledge cutoff" limitation of pre-trained LLMs.
-    
+
     - **Domain Specialization**: Organizations can use RAG to incorporate their own proprietary information, creating specialized AI assistants without needing to retrain the entire model.
-    
+
     - **Transparency**: RAG systems can cite their sources, making it easier to verify the information they provide.
 
     ## Technical Implementation
@@ -81,11 +81,11 @@ if Enum.empty?(RAG.list_documents()) do
     As RAG systems become more advanced, they promise to deliver AI assistants that combine the flexibility of language models with the reliability of knowledge-based systems.
     """
   }
-  
+
   case RAG.create_document(sample_doc) do
     {:ok, document} ->
       IO.puts("Sample document created successfully with ID: #{document.id}")
-    
+
     {:error, reason} ->
       IO.puts("Failed to create sample document: #{inspect(reason)}")
   end

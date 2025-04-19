@@ -25,7 +25,12 @@ config :raga, RagaWeb.Endpoint,
 # Groq API configuration
 # In a real application, you should not store your API key directly in config files.
 # Use environment variables instead.
-config :raga, groq_api_key: System.get_env("GROQ_API_KEY") || "your_api_key_here"
+config :raga,
+  groq_api_key:
+    System.get_env("GROQ_API_KEY") || "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"
+
+# Ollama configuration
+config :raga, ollama_url: System.get_env("OLLAMA_URL") || "http://localhost:11434"
 
 # Configures the mailer
 #

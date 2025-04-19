@@ -15,6 +15,35 @@ if ! command -v psql &> /dev/null; then
     exit 1
 fi
 
+# Check for Ollama
+if ! command -v ollama &> /dev/null; then
+    echo "Ollama is not installed. Would you like to install it now? (y/n)"
+    read install_ollama
+    if [[ $install_ollama == "y" ]]; then
+        curl -fsSL https://ollama.ai/install.sh | sh
+    else
+        echo "Warning: Ollama is required for local embeddings. Please install it manually."
+        echo "Visit https://ollama.ai/download for installation instructions."
+        exit 1
+    fi
+fi
+
+# Check if Ollama server is running
+if ! curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+    echo "Starting Ollama server..."
+    ollama serve &
+    # Give it time to start
+    sleep 5
+    echo "Ollama server started."
+fi
+
+# Check if embedding model is installed
+if ! ollama list | grep -q "nomic-embed-text"; then
+    echo "Downloading nomic-embed-text model for embeddings..."
+    ollama pull nomic-embed-text
+    echo "Model downloaded successfully."
+fi
+
 # Get Groq API key
 if [ -z "$GROQ_API_KEY" ]; then
     echo "Groq API key not found in environment."
@@ -49,4 +78,5 @@ echo "=== Setup complete! ==="
 echo "You can now start the Phoenix server with:"
 echo "  mix phx.server"
 echo ""
+echo "Make sure Ollama is running with: ollama serve"
 echo "Then visit http://localhost:4000 in your browser."
