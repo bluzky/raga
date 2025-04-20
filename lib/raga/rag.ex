@@ -4,6 +4,7 @@ defmodule Raga.RAG do
   """
 
   import Ecto.Query, warn: false
+  require Logger
   
   alias Raga.Repo
   alias Raga.RAG.{Document, DocumentChunk, Query, Processor}
@@ -57,17 +58,20 @@ defmodule Raga.RAG do
       |> Document.changeset(attrs)
       |> Repo.update!()
       
-      # Re-process document
-      attrs = Map.merge(%{title: document.title, content: document.content}, attrs)
+      # Re-process document with the new content
+      attrs = %{
+        "title" => attrs["title"] || attrs[:title] || document.title,
+        "content" => attrs["content"] || attrs[:content] || document.content
+      }
       
       # Split content into chunks
-      chunks = Processor.split_into_chunks(attrs.content)
+      chunks = Processor.split_into_chunks(attrs["content"])
       
       # Process each chunk
       chunks
       |> Enum.with_index()
       |> Enum.map(fn {chunk_content, index} ->
-        case Raga.Groq.Client.generate_embeddings(chunk_content) do
+        case Raga.Ollama.Client.generate_embeddings(chunk_content) do
           {:ok, embedding} ->
             # Create chunk with embedding
             %DocumentChunk{}
@@ -122,5 +126,76 @@ defmodule Raga.RAG do
   """
   def get_query(id) do
     Repo.get(Query, id)
+  end
+  
+  @doc """
+  Search for text directly in document content (without embeddings)
+  This is useful for debugging when vector similarity search isn't working
+  """
+  def search_document_content(search_text) do
+    from(d in Document,
+      where: ilike(d.content, ^"%#{search_text}%"),
+      select: %{id: d.id, title: d.title, excerpt: fragment("substring(? from position(? in ?) - 50 for 200)", d.content, ^search_text, d.content)}
+    )
+    |> Repo.all()
+  end
+  
+  @doc """
+  Get the total count of document chunks
+  """
+  def count_document_chunks do
+    Repo.aggregate(DocumentChunk, :count, :id)
+  end
+  
+  @doc """
+  Debug function to test various vector search methods
+  """
+  def debug_vector_search(query_text) do
+    Logger.info("Debug vector search for: #{query_text}")
+    
+    case Raga.Ollama.Client.generate_embeddings(query_text) do
+      {:ok, embedding} ->
+        # Try different similarity methods
+        
+        # 1. Cosine similarity (default)
+        cosine_results = 
+          embedding
+          |> DocumentChunk.nearest_chunks(5, 0.1) # Lower threshold
+          |> Repo.all()
+          
+        # 2. L2 distance
+        l2_results =
+          embedding
+          |> DocumentChunk.nearest_chunks_l2(5)
+          |> Repo.all()
+          
+        # 3. Inner product
+        inner_results =
+          embedding
+          |> DocumentChunk.nearest_chunks_inner(5)
+          |> Repo.all()
+          
+        # 4. Direct text search (fallback)
+        text_results = search_document_content(query_text)
+        
+        Logger.info("Query '#{query_text}' results:")
+        Logger.info("- Cosine similarity: #{length(cosine_results)} results")
+        Logger.info("- L2 distance: #{length(l2_results)} results")
+        Logger.info("- Inner product: #{length(inner_results)} results")
+        Logger.info("- Text search: #{length(text_results)} results")
+        
+        # Return all results for comparison
+        %{
+          query: query_text,
+          cosine_results: cosine_results,
+          l2_results: l2_results,
+          inner_results: inner_results,
+          text_results: text_results
+        }
+        
+      {:error, reason} ->
+        Logger.error("Failed to generate embedding: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 end

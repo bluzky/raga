@@ -7,6 +7,7 @@ defmodule Raga.RAG.Processor do
   alias Raga.RAG.{Document, DocumentChunk, Query}
   alias Raga.Ollama.Client, as: OllamaClient
   alias Raga.Groq.Client, as: GroqClient
+  require Logger
 
   @doc """
   Chunk size in characters for splitting documents
@@ -22,30 +23,42 @@ defmodule Raga.RAG.Processor do
   3. Generating embeddings for each chunk using Ollama
   4. Saving chunks with embeddings
   """
-  def process_document(%{"title" => title, "content" => content}) do
-    # Start transaction to ensure all parts succeed or fail together
+  def process_document(params) do
+    # Handle both string and atom keys
+    title = params["title"] || params[:title]
+    content = params["content"] || params[:content]
 
-    Repo.transaction(fn ->
+    unless title && content do
+      {:error, "Title and content are required"}
+    else
+      # Start transaction to ensure all parts succeed or fail together
       # Create document record
       {:ok, document} =
         %Document{}
         |> Document.changeset(%{title: title, content: content})
         |> Repo.insert()
 
+      IO.inspect("Complete inserting")
+
       # Split content into chunks
       chunks = split_into_chunks(content)
+
+      Logger.info("Processing document: #{title} with #{length(chunks)} chunks")
 
       # Process each chunk
       chunks
       |> Enum.with_index()
-      |> Enum.map(fn {chunk_content, index} ->
-        case OllamaClient.generate_embeddings(chunk_content) do
+      |> Enum.map(fn {chunk, index} ->
+        case OllamaClient.generate_embeddings(chunk.text) do
           {:ok, embedding} ->
+            # Log the embedding dimensions for debugging
+            Logger.debug("Generated embedding with #{length(embedding)} dimensions")
+
             # Create chunk with embedding
             %DocumentChunk{}
             |> DocumentChunk.changeset(%{
               document_id: document.id,
-              content: chunk_content,
+              content: chunk.text,
               chunk_index: index,
               embedding: embedding
             })
@@ -53,13 +66,14 @@ defmodule Raga.RAG.Processor do
 
           {:error, reason} ->
             # Raise to rollback transaction
+            Logger.error("Failed to generate embeddings: #{inspect(reason)}")
             raise "Failed to generate embeddings: #{reason}"
         end
       end)
 
       # Return the document
-      document
-    end)
+      {:ok, document}
+    end
   end
 
   @doc """
@@ -70,18 +84,31 @@ defmodule Raga.RAG.Processor do
   4. Saving the query and response
   """
   def process_query(query_text) do
+    Logger.info("Processing query: #{query_text}")
+
     # Generate embedding for the query using Ollama
     case OllamaClient.generate_embeddings(query_text) do
       {:ok, embedding} ->
-        # Find most relevant chunks
+        Logger.debug("Generated query embedding with #{length(embedding)} dimensions")
+
+        # Find most relevant chunks with a lower similarity threshold
         chunks =
           embedding
           |> DocumentChunk.nearest_chunks(5)
           |> Repo.all()
 
+        Logger.info("Found #{length(chunks)} relevant chunks")
+
         if Enum.empty?(chunks) do
+          Logger.warn("No relevant documents found for query: #{query_text}")
           {:error, "No relevant documents found"}
         else
+          # Log the similarities for debugging
+          chunks
+          |> Enum.each(fn %{document_title: title, similarity: similarity} ->
+            Logger.debug("Chunk from '#{title}' with similarity: #{similarity}")
+          end)
+
           # Generate response from Groq
           case GroqClient.generate_response(query_text, chunks) do
             {:ok, response} ->
@@ -98,11 +125,13 @@ defmodule Raga.RAG.Processor do
               {:ok, %{response: response, sources: extract_sources(chunks)}}
 
             {:error, reason} ->
+              Logger.error("Failed to generate response: #{inspect(reason)}")
               {:error, reason}
           end
         end
 
       {:error, reason} ->
+        Logger.error("Failed to generate query embedding: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -111,35 +140,7 @@ defmodule Raga.RAG.Processor do
   Split text into overlapping chunks
   """
   def split_into_chunks(text) do
-    # Split by paragraphs first to try to keep coherent chunks
-    paragraphs = String.split(text, ~r/\n\s*\n/)
-
-    build_chunks(paragraphs, "", [], @chunk_size, @chunk_overlap)
-  end
-
-  # Helper function to recursively build chunks
-  defp build_chunks([], current_chunk, chunks, _, _) do
-    # Add the last chunk if it's not empty
-    if current_chunk != "", do: chunks ++ [current_chunk], else: chunks
-  end
-
-  defp build_chunks([paragraph | rest], current_chunk, chunks, chunk_size, chunk_overlap) do
-    # If adding this paragraph would exceed the chunk size, start a new chunk
-    new_chunk = if current_chunk == "", do: paragraph, else: current_chunk <> "\n\n" <> paragraph
-
-    if String.length(new_chunk) > chunk_size do
-      overlap = String.slice(current_chunk, -chunk_overlap..-1)
-
-      build_chunks(
-        [paragraph | rest],
-        overlap,
-        chunks ++ [current_chunk],
-        chunk_size,
-        chunk_overlap
-      )
-    else
-      build_chunks(rest, new_chunk, chunks, chunk_size, chunk_overlap)
-    end
+    TextChunker.split(text, chunk_size: @chunk_size, chunk_overlap: @chunk_overlap)
   end
 
   @doc """
