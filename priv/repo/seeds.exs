@@ -11,7 +11,6 @@
 # and so on) as they will fail if something goes wrong.
 
 alias Raga.RAG
-alias Raga.RAG.Processor
 
 # Check if we have any documents already
 if Enum.empty?(RAG.list_documents()) do

@@ -64,9 +64,7 @@ defmodule RagaWeb.QueryLive do
         <div id="response-section" class="mt-8 border rounded-md overflow-hidden">
           <div class="bg-green-50 px-4 py-2 border-b font-medium">Response</div>
           <div class="p-4 prose max-w-none" id="response-content" phx-hook="HighlightResponse">
-            <%= for line <- String.split(@response, "\n") do %>
-              <p><%= line %></p>
-            <% end %>
+            <%= Phoenix.HTML.raw(render_markdown(@response)) %>
           </div>
         </div>
 
@@ -125,6 +123,20 @@ defmodule RagaWeb.QueryLive do
         
       {:error, message} ->
         {:noreply, assign(socket, loading: false, error: message)}
+    end
+  end
+  
+  # Helper function to render markdown as HTML
+  defp render_markdown(markdown_text) do
+    # You need to add this dependency to your mix.exs:
+    # {:earmark, "~> 1.4"}
+    case Earmark.as_html(markdown_text) do
+      {:ok, html, _} -> html
+      {:error, _html, error_messages} -> 
+        # Log errors but still show the original markdown as fallback
+        require Logger
+        Logger.error("Markdown rendering error: #{inspect(error_messages)}")
+        "<pre>#{markdown_text}</pre>"
     end
   end
   

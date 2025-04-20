@@ -36,7 +36,8 @@ defmodule Raga.MixProject do
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.10"},
       {:postgrex, ">= 0.0.0"},
-      {:pgvector, "~> 0.2.0"},  # Add pgvector extension support
+      # Ecto support for vectors
+      {:pgvector, "~> 0.3.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       # TODO bump on release to {:phoenix_live_view, "~> 1.0.0"},
@@ -60,7 +61,9 @@ defmodule Raga.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
-       {:text_chunker, "~> 0.3"}
+      {:text_chunker, "~> 0.3"},
+      # Add Earmark for Markdown rendering
+      {:earmark, "~> 1.4"}
     ]
   end
 
