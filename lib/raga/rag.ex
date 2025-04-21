@@ -1,254 +1,169 @@
 defmodule Raga.RAG do
   @moduledoc """
-  The RAG context - provides functions for managing documents and queries
+  The RAG context for Retrieval-Augmented Generation functionality
+  Supports both Approach 1 (pre-retrieval) and Approach 2 (tool-based)
   """
 
-  import Ecto.Query, warn: false
-  require Logger
-  
+  import Ecto.Query
   alias Raga.Repo
   alias Raga.RAG.{Document, DocumentChunk, Query, Processor, Conversation}
 
-  # Document functions
-
   @doc """
-  Returns the list of documents.
+  Lists all documents with their chunk count
   """
   def list_documents do
-    Document.all_ordered_query()
+    Document
+    |> preload(:chunks)
     |> Repo.all()
+    |> Enum.map(fn doc ->
+      Map.put(doc, :chunk_count, length(doc.chunks))
+    end)
   end
 
   @doc """
-  Gets a single document.
+  Gets a single document without preloaded chunks
   """
   def get_document(id) do
     Repo.get(Document, id)
   end
 
   @doc """
-  Gets a single document with associated chunks.
+  Gets a single document with preloaded chunks (raises if not found)
   """
-  def get_document_with_chunks(id) do
+  def get_document!(id) do
     Document
-    |> Repo.get(id)
-    |> Repo.preload(chunks: from(c in DocumentChunk, order_by: c.chunk_index))
+    |> Repo.get!(id)
+    |> Repo.preload(:chunks)
   end
 
   @doc """
-  Creates a document with content processing.
+  Gets a single document with preloaded chunks (alias for get_document!)
+  """
+  def get_document_with_chunks(id) do
+    get_document!(id)
+  end
+
+  @doc """
+  Creates a document and processes it for RAG
   """
   def create_document(attrs \\ %{}) do
     Processor.process_document(attrs)
   end
 
   @doc """
-  Updates a document.
-  
-  This will delete all existing chunks and re-process the document.
+  Updates a document and reprocesses it for RAG
   """
   def update_document(%Document{} = document, attrs) do
     Repo.transaction(fn ->
       # Delete existing chunks
       from(c in DocumentChunk, where: c.document_id == ^document.id)
       |> Repo.delete_all()
-      
-      # Update document
-      document
-      |> Document.changeset(attrs)
-      |> Repo.update!()
-      
-      # Re-process document with the new content
-      attrs = %{
-        "title" => attrs["title"] || attrs[:title] || document.title,
-        "content" => attrs["content"] || attrs[:content] || document.content
-      }
-      
-      # Split content into chunks
-      chunks = Processor.split_into_chunks(attrs["content"])
-      
-      # Process each chunk
-      chunks
-      |> Enum.with_index()
-      |> Enum.map(fn {chunk_content, index} ->
-        case Raga.Ollama.Client.generate_embeddings(chunk_content) do
-          {:ok, embedding} ->
-            # Create chunk with embedding
-            %DocumentChunk{}
-            |> DocumentChunk.changeset(%{
-              document_id: document.id,
-              content: chunk_content,
-              chunk_index: index,
-              embedding: embedding
-            })
-            |> Repo.insert!()
 
-          {:error, reason} ->
-            # Raise to rollback transaction
-            raise "Failed to generate embeddings: #{reason}"
-        end
-      end)
+      # Update the document
+      {:ok, updated_document} =
+        document
+        |> Document.changeset(attrs)
+        |> Repo.update()
 
-      # Return the updated document
-      Repo.get(Document, document.id)
+      # Reprocess chunks
+      {:ok, _} =
+        Processor.process_document(%{
+          title: updated_document.title,
+          content: updated_document.content
+        })
+
+      updated_document
     end)
   end
 
   @doc """
-  Deletes a document.
-  
-  This will cascade delete all associated chunks.
+  Deletes a document and all associated chunks
   """
   def delete_document(%Document{} = document) do
     Repo.delete(document)
   end
 
-  # Query functions
-
   @doc """
-  Process a query and return the response.
-  If session_id is provided, maintains conversation context.
+  Lists recent queries with their responses
   """
-  def process_query(query_text, session_id \\ nil) do
-    Processor.process_query(query_text, session_id)
-  end
-
-  @doc """
-  Returns the list of recent queries.
-  """
-  def list_recent_queries(limit \\ 10) do
+  def list_queries(limit \\ 10) do
     Query.all_ordered_query()
     |> limit(^limit)
     |> Repo.all()
   end
 
   @doc """
-  Gets a single query.
+  Processes a query using either Approach 1 or Approach 2 based on configuration
   """
-  def get_query(id) do
-    Repo.get(Query, id)
+  def process_query(query_text, session_id \\ nil) do
+    Processor.process_query(query_text, session_id)
   end
-  
-  @doc """
-  Search for text directly in document content (without embeddings)
-  This is useful for debugging when vector similarity search isn't working
-  """
-  def search_document_content(search_text) do
-    from(d in Document,
-      where: ilike(d.content, ^"%#{search_text}%"),
-      select: %{id: d.id, title: d.title, excerpt: fragment("substring(? from position(? in ?) - 50 for 200)", d.content, ^search_text, d.content)}
-    )
-    |> Repo.all()
-  end
-  
-  @doc """
-  Get the total count of document chunks
-  """
-  def count_document_chunks do
-    Repo.aggregate(DocumentChunk, :count, :id)
-  end
-  
-  @doc """
-  Debug function to test various vector search methods
-  """
-  # Conversation functions
 
   @doc """
-  Gets a conversation by session_id or creates a new one
+  Gets or creates a conversation by session_id
   """
   def get_or_create_conversation(session_id) do
-    case Repo.one(Conversation.get_by_session_id_query(session_id)) do
+    case Repo.get_by(Conversation, session_id: session_id) do
       nil ->
-        # Create new conversation
         %Conversation{}
         |> Conversation.changeset(%{
           session_id: session_id,
-          last_activity: DateTime.utc_now(),
-          messages: []
+          messages: [],
+          last_activity: NaiveDateTime.utc_now()
         })
         |> Repo.insert()
-      
+
       conversation ->
-        # Update last activity time
-        conversation
-        |> Conversation.changeset(%{last_activity: DateTime.utc_now()})
-        |> Repo.update()
+        {:ok, conversation}
     end
   end
 
   @doc """
   Adds a message to a conversation
   """
-  def add_message_to_conversation(conversation, role, content) do
+  def add_message_to_conversation(%Conversation{} = conversation, role, content) do
+    messages = conversation.messages || []
+    new_message = %{"role" => role, "content" => content}
+    updated_messages = messages ++ [new_message]
+
     conversation
-    |> Conversation.add_message_changeset(role, content)
+    |> Conversation.changeset(%{messages: updated_messages})
     |> Repo.update()
   end
 
   @doc """
-  Deletes all conversations except for the provided active session IDs
-  """
-  def delete_inactive_conversations(active_session_ids) do
-    Conversation.inactive_conversations_query(active_session_ids || [])
-    |> Repo.delete_all()
-  end
-
-  @doc """
-  Gets all messages for a conversation
+  Gets conversation messages for a session ID
   """
   def get_conversation_messages(session_id) do
-    case Repo.one(Conversation.get_by_session_id_query(session_id)) do
+    case Repo.get_by(Conversation, session_id: session_id) do
       nil -> []
       conversation -> conversation.messages || []
     end
   end
 
-  def debug_vector_search(query_text) do
-    Logger.info("Debug vector search for: #{query_text}")
-    
-    case Raga.Ollama.Client.generate_embeddings(query_text) do
-      {:ok, embedding} ->
-        # Try different similarity methods
-        
-        # 1. Cosine similarity (default)
-        cosine_results = 
-          embedding
-          |> DocumentChunk.nearest_chunks(5, 0.1) # Lower threshold
-          |> Repo.all()
-          
-        # 2. L2 distance
-        l2_results =
-          embedding
-          |> DocumentChunk.nearest_chunks_l2(5)
-          |> Repo.all()
-          
-        # 3. Inner product
-        inner_results =
-          embedding
-          |> DocumentChunk.nearest_chunks_inner(5)
-          |> Repo.all()
-          
-        # 4. Direct text search (fallback)
-        text_results = search_document_content(query_text)
-        
-        Logger.info("Query '#{query_text}' results:")
-        Logger.info("- Cosine similarity: #{length(cosine_results)} results")
-        Logger.info("- L2 distance: #{length(l2_results)} results")
-        Logger.info("- Inner product: #{length(inner_results)} results")
-        Logger.info("- Text search: #{length(text_results)} results")
-        
-        # Return all results for comparison
-        %{
-          query: query_text,
-          cosine_results: cosine_results,
-          l2_results: l2_results,
-          inner_results: inner_results,
-          text_results: text_results
-        }
-        
-      {:error, reason} ->
-        Logger.error("Failed to generate embedding: #{inspect(reason)}")
-        {:error, reason}
-    end
+  @doc """
+  Clears all messages from a conversation
+  """
+  def clear_conversation(%Conversation{} = conversation) do
+    conversation
+    |> Conversation.changeset(%{messages: []})
+    |> Repo.update()
+  end
+
+  @doc """
+  Returns the current RAG approach configuration
+  """
+  def get_current_approach do
+    Application.get_env(:raga, :rag_approach)[:type] || :tool_based
+  end
+
+  @doc """
+  Deletes inactive conversations based on provided session list
+  """
+  def delete_inactive_conversations(active_sessions) do
+    from(c in Conversation,
+      where: c.session_id not in ^active_sessions
+    )
+    |> Repo.delete_all()
   end
 end

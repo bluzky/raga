@@ -9,7 +9,20 @@ import Config
 
 config :raga,
   ecto_repos: [Raga.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime, binary_id: true]
+
+# RAG Configuration
+config :raga, :rag_approach,
+  # Choose between :tool_based (Approach 2) or :pre_retrieval (Approach 1)
+  type: :tool_based
+
+# Ollama configuration for local embeddings
+config :raga, :ollama_embeddings,
+  model: "nomic-embed-text",
+  base_url: "http://localhost:11434"
+
+# Groq API configuration
+config :raga, :groq_api_key, System.get_env("GROQ_API_KEY")
 
 # Configures the endpoint
 config :raga, RagaWeb.Endpoint,
@@ -20,16 +33,7 @@ config :raga, RagaWeb.Endpoint,
     layout: false
   ],
   pubsub_server: Raga.PubSub,
-  live_view: [signing_salt: "6rD25j7x"]
-
-# Groq API configuration
-# In a real application, you should not store your API key directly in config files.
-# Use environment variables instead.
-config :raga,
-  groq_api_key: System.get_env("GROQ_API_KEY")
-
-# Ollama configuration
-config :raga, ollama_url: System.get_env("OLLAMA_URL") || "http://localhost:11434"
+  live_view: [signing_salt: "CKyBQQJE"]
 
 # Configures the mailer
 #

@@ -3,6 +3,7 @@ defmodule Raga.RAG.Processor do
   Module for processing documents and queries for the RAG system
   """
 
+  import Ecto.Query, only: [where: 3, select: 3]
   alias Raga.Repo
   alias Raga.RAG.{Document, DocumentChunk, Query}
   alias Raga.Ollama.Client, as: OllamaClient
@@ -77,14 +78,101 @@ defmodule Raga.RAG.Processor do
   end
 
   @doc """
-  Process a query by:
+  Process a query using Approach 2 (Tool-based):
+  1. Send query directly to GROQ LLM with tool capabilities
+  2. LLM decides if it needs to search the knowledge base
+  3. If search is used, relevant documents are retrieved
+  4. LLM generates final response with citations if applicable
+  """
+  def process_query(query_text, session_id \\ nil) do
+    approach = Application.get_env(:raga, :rag_approach)[:type] || :tool_based
+    
+    case approach do
+      :tool_based ->
+        process_query_tool_based(query_text, session_id)
+      :pre_retrieval ->
+        process_query_old_approach(query_text, session_id)
+    end
+  end
+  
+  defp process_query_tool_based(query_text, session_id) do
+    Logger.info(
+      "Processing query (Approach 2): #{query_text}, session_id: #{session_id || "none"}"
+    )
+
+    # Get or create conversation and add user message first
+    conversation_history =
+      if session_id do
+        # Get or create conversation
+        {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
+        
+        # Add user message to conversation first, so it's available in the UI
+        {:ok, updated_conversation} = Raga.RAG.add_message_to_conversation(conversation, "user", query_text)
+
+        # Format conversation history for LLM
+        Raga.RAG.Conversation.format_messages_for_llm(updated_conversation.messages)
+      else
+        []
+      end
+
+    # Generate response from Groq with tool support
+    case GroqClient.generate_response(query_text, conversation_history) do
+      {:ok, response, tool_sources} ->
+        # New 3-tuple response with tool sources
+        handle_response_with_sources(response, tool_sources, query_text, session_id)
+        
+      {:ok, response} ->
+        # Legacy 2-tuple response (no tools used)
+        handle_response_with_sources(response, nil, query_text, session_id)
+
+      {:error, reason} ->
+        Logger.error("Failed to generate response: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp handle_response_with_sources(response, tool_sources, query_text, session_id) do
+    # Generate embedding for the query for saving
+    {:ok, embedding} = OllamaClient.generate_embeddings(query_text)
+
+    # Save query and response
+    {:ok, query} =
+      %Query{}
+      |> Query.changeset(%{
+        query_text: query_text,
+        response: response,
+        embedding: embedding
+      })
+      |> Repo.insert()
+
+    # Add assistant response to conversation (user message already added)
+    if session_id do
+      {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
+      {:ok, _} = Raga.RAG.add_message_to_conversation(conversation, "assistant", response)
+    end
+
+    # Extract unique sources from tool usage
+    sources = process_tool_sources(tool_sources)
+
+    {:ok,
+     %{
+       response: response,
+       sources: sources,
+       conversation_id: session_id
+     }}
+  end
+
+  @doc """
+  Process a query using the old approach (Approach 1) for backward compatibility:
   1. Generating embedding for the query using Ollama
   2. Finding relevant document chunks
   3. Generating a response using the Groq LLM, including conversation context if provided
   4. Saving the query, response, and conversation context
   """
-  def process_query(query_text, session_id \\ nil) do
-    Logger.info("Processing query: #{query_text}, session_id: #{session_id || "none"}")
+  def process_query_old_approach(query_text, session_id \\ nil) do
+    Logger.info(
+      "Processing query (Approach 1): #{query_text}, session_id: #{session_id || "none"}"
+    )
 
     # Generate embedding for the query using Ollama
     case OllamaClient.generate_embeddings(query_text) do
@@ -110,20 +198,22 @@ defmodule Raga.RAG.Processor do
           end)
 
           # Get conversation history if session_id is provided
-          conversation_history = if session_id do
-            # Get or create conversation
-            {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
-            
-            # Add user message to conversation
-            {:ok, conversation} = Raga.RAG.add_message_to_conversation(conversation, "user", query_text)
-            
-            # Format conversation history for LLM
-            Raga.RAG.Conversation.format_messages_for_llm(conversation.messages)
-          else
-            # No conversation context
-            [%{role: "user", content: query_text}]
-          end
-          
+          conversation_history =
+            if session_id do
+              # Get or create conversation
+              {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
+
+              # Add user message to conversation first
+              {:ok, updated_conversation} =
+                Raga.RAG.add_message_to_conversation(conversation, "user", query_text)
+
+              # Format conversation history for LLM
+              Raga.RAG.Conversation.format_messages_for_llm(updated_conversation.messages)
+            else
+              # No conversation context
+              [%{role: "user", content: query_text}]
+            end
+
           # Generate response from Groq with conversation history
           case GroqClient.generate_response(query_text, chunks, conversation_history) do
             {:ok, response} ->
@@ -136,18 +226,21 @@ defmodule Raga.RAG.Processor do
                   embedding: embedding
                 })
                 |> Repo.insert()
-              
+
               # If we have a session, add assistant response to conversation
               if session_id do
                 {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
-                {:ok, _} = Raga.RAG.add_message_to_conversation(conversation, "assistant", response)
+
+                {:ok, _} =
+                  Raga.RAG.add_message_to_conversation(conversation, "assistant", response)
               end
 
-              {:ok, %{
-                response: response, 
-                sources: extract_sources(chunks),
-                conversation_id: session_id
-              }}
+              {:ok,
+               %{
+                 response: response,
+                 sources: extract_sources(chunks),
+                 conversation_id: session_id
+               }}
 
             {:error, reason} ->
               Logger.error("Failed to generate response: #{inspect(reason)}")
@@ -177,5 +270,20 @@ defmodule Raga.RAG.Processor do
       %{id: id, title: title}
     end)
     |> Enum.uniq_by(fn %{id: id} -> id end)
+  end
+
+  @doc """
+  Process tool sources to find document IDs
+  """
+  defp process_tool_sources(nil), do: []
+
+  defp process_tool_sources(tool_sources) do
+    # Fetch document info based on titles from tool sources
+    titles = Enum.map(tool_sources, & &1.title)
+
+    Document
+    |> where([d], d.title in ^titles)
+    |> select([d], %{id: d.id, title: d.title})
+    |> Repo.all()
   end
 end

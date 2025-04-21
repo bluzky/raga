@@ -15,6 +15,10 @@
 //     import "some-package"
 //
 
+// Import highlight.js
+import hljs from 'highlight.js';
+import 'highlight.js/styles/github.css';
+
 // Include phoenix_html to handle method=PUT/DELETE in forms and buttons.
 import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
@@ -22,6 +26,9 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import Hooks from "./hooks"
+
+// Make hljs globally available for hooks
+window.hljs = hljs;
 
 // Hooks are defined in the hooks.js file
 

@@ -74,13 +74,13 @@ defmodule RagaWeb.QueryLive do
         <%= if @conversation_messages && @conversation_messages != [] do %>
           <div class="space-y-4">
             <h3 class="text-sm font-medium">Conversation History</h3>
-            <div class="space-y-4">
-              <%= for message <- @conversation_messages do %>
+            <div class="space-y-4" id="conversation-messages-container" phx-hook="HighlightResponse" phx-update="replace">
+              <%= for {message, idx} <- Enum.with_index(@conversation_messages) do %>
                 <div class={"p-3 rounded-lg " <> if message["role"] == "user", do: "bg-blue-50 ml-8", else: "bg-green-50 mr-8"}>
                   <div class="font-medium mb-1">
                     {if message["role"] == "user", do: "You", else: "Assistant"}
                   </div>
-                  <div class="prose max-w-none">
+                  <div id={"message-content-#{idx}"} class="prose max-w-none">
                     {Phoenix.HTML.raw(render_markdown(message["content"]))}
                   </div>
                 </div>
@@ -256,18 +256,35 @@ defmodule RagaWeb.QueryLive do
 
   # Helper function to render markdown as HTML
   defp render_markdown(markdown_text) do
-    # You need to add this dependency to your mix.exs:
-    # {:earmark, "~> 1.4"}
-    case Earmark.as_html(markdown_text) do
+    # Configure Earmark with code syntax highlighting
+    opts = %Earmark.Options{
+      code_class_prefix: "language-",
+      gfm: true,
+      breaks: true,
+      smartypants: false
+    }
+    
+    case Earmark.as_html(markdown_text, opts) do
       {:ok, html, _} ->
         html
-
+        
       {:error, _html, error_messages} ->
         # Log errors but still show the original markdown as fallback
         require Logger
         Logger.error("Markdown rendering error: #{inspect(error_messages)}")
-        "<pre>#{markdown_text}</pre>"
+        "<pre>#{escape_html(markdown_text)}</pre>"
     end
+  end
+
+  
+  # Escape HTML to prevent XSS in fallback rendering
+  defp escape_html(text) do
+    text
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
+    |> String.replace("'", "&#39;")
   end
 
   defp get_document_count do

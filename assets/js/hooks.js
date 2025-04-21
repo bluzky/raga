@@ -57,15 +57,26 @@ document.addEventListener("phx:scroll-to-response", (e) => {
   }
 });
 
-// Hook to highlight the response content (for syntax highlighting if needed)
+// Hook to highlight the response content using highlight.js
 const HighlightResponse = {
   mounted() {
-    // Apply any syntax highlighting or formatting here
+    this.highlightCode();
+
+    // Re-apply highlighting when content updates
     this.handleEvent("highlight-response", () => {
-      // Could add code here to enhance markdown rendering
-      // or apply syntax highlighting to code blocks
+      this.highlightCode();
     });
   },
+
+  highlightCode() {
+    // Select all code blocks within the element
+    const codeBlocks = this.el.querySelectorAll("pre code");
+    
+    codeBlocks.forEach((block) => {
+      // Apply highlight.js
+      hljs.highlightElement(block);
+    });
+  }
 };
 
 export default {

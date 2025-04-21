@@ -1,6 +1,10 @@
 # Raga - Retrieval-Augmented Generation System
 
-A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) using Phoenix, PostgreSQL with pgvector, local Ollama embeddings, and the Groq API.
+A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) using Phoenix, PostgreSQL with pgvector, local Ollama embeddings, and the Groq API. 
+
+Now supports two approaches:
+- **Approach 1 (Pre-retrieval)**: Always retrieves context before querying the LLM
+- **Approach 2 (Tool-based)**: LLM decides when to access the knowledge base
 
 ## Core Technologies
 
@@ -22,6 +26,30 @@ A Phoenix application that demonstrates Retrieval-Augmented Generation (RAG) usi
    - Vector similarity search against stored documents
    - Response generation using retrieved context
    - Display response with source references
+
+3. **Flexible RAG Approaches:**
+   - **Approach 1**: Pre-retrieval (traditional RAG)
+   - **Approach 2**: Tool-based (LLM-driven retrieval)
+
+## RAG Approaches
+
+### Approach 1: Pre-retrieval (Traditional RAG)
+1. User query → Generate embedding → Search similar documents → Send context + query to LLM → Response
+2. Always performs retrieval regardless of query type
+3. Simpler architecture with lower latency
+
+### Approach 2: Tool-based (LLM-Driven)
+1. User query → LLM evaluates if it needs additional context → If needed, calls search_knowledge_base function → Retrieves information → Generates response
+2. More flexible - LLM decides when retrieval is necessary
+3. Can handle general queries without retrieval and complex queries with multiple retrievals
+
+You can switch between approaches in `config/config.exs`:
+
+```elixir
+# Choose between :tool_based (Approach 2) or :pre_retrieval (Approach 1)
+config :raga, :rag_approach,
+  type: :tool_based
+```
 
 ## Setup
 
@@ -110,10 +138,9 @@ CREATE EXTENSION vector;
 1. Go to the query interface at `/query`
 2. Enter your question in the text field
 3. The system will:
-   - Generate an embedding for your query using Ollama locally
-   - Perform a similarity search to find relevant document chunks
-   - Send the query and retrieved context to Groq API
-   - Display the response with source documents
+   - With Approach 1: Always retrieve relevant context first
+   - With Approach 2: Let the LLM decide if context is needed
+   - Generate a response with appropriate citations
 
 ## Architecture
 
@@ -129,6 +156,7 @@ CREATE EXTENSION vector;
 
 3. **LLM Integration:**
    - Groq API for high-quality responses
+   - Function calling support for Approach 2
    - Context enrichment with retrieved documents
    - Source attribution in responses
 
@@ -150,3 +178,4 @@ Potential enhancements:
 - Implement more sophisticated chunking strategies
 - Add user authentication
 - Add document categorization
+- Implement more tools for the LLM to use (e.g., web search, calculator)
