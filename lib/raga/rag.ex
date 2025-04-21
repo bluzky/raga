@@ -7,7 +7,7 @@ defmodule Raga.RAG do
   require Logger
   
   alias Raga.Repo
-  alias Raga.RAG.{Document, DocumentChunk, Query, Processor}
+  alias Raga.RAG.{Document, DocumentChunk, Query, Processor, Conversation}
 
   # Document functions
 
@@ -107,9 +107,10 @@ defmodule Raga.RAG do
 
   @doc """
   Process a query and return the response.
+  If session_id is provided, maintains conversation context.
   """
-  def process_query(query_text) do
-    Processor.process_query(query_text)
+  def process_query(query_text, session_id \\ nil) do
+    Processor.process_query(query_text, session_id)
   end
 
   @doc """
@@ -150,6 +151,58 @@ defmodule Raga.RAG do
   @doc """
   Debug function to test various vector search methods
   """
+  # Conversation functions
+
+  @doc """
+  Gets a conversation by session_id or creates a new one
+  """
+  def get_or_create_conversation(session_id) do
+    case Repo.one(Conversation.get_by_session_id_query(session_id)) do
+      nil ->
+        # Create new conversation
+        %Conversation{}
+        |> Conversation.changeset(%{
+          session_id: session_id,
+          last_activity: DateTime.utc_now(),
+          messages: []
+        })
+        |> Repo.insert()
+      
+      conversation ->
+        # Update last activity time
+        conversation
+        |> Conversation.changeset(%{last_activity: DateTime.utc_now()})
+        |> Repo.update()
+    end
+  end
+
+  @doc """
+  Adds a message to a conversation
+  """
+  def add_message_to_conversation(conversation, role, content) do
+    conversation
+    |> Conversation.add_message_changeset(role, content)
+    |> Repo.update()
+  end
+
+  @doc """
+  Deletes all conversations except for the provided active session IDs
+  """
+  def delete_inactive_conversations(active_session_ids) do
+    Conversation.inactive_conversations_query(active_session_ids || [])
+    |> Repo.delete_all()
+  end
+
+  @doc """
+  Gets all messages for a conversation
+  """
+  def get_conversation_messages(session_id) do
+    case Repo.one(Conversation.get_by_session_id_query(session_id)) do
+      nil -> []
+      conversation -> conversation.messages || []
+    end
+  end
+
   def debug_vector_search(query_text) do
     Logger.info("Debug vector search for: #{query_text}")
     

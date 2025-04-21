@@ -21,12 +21,9 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
-import QueryHooks from "./hooks/query_hooks"
+import Hooks from "./hooks"
 
-// Define the hooks for LiveView
-const Hooks = {
-  ...QueryHooks
-}
+// Hooks are defined in the hooks.js file
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {

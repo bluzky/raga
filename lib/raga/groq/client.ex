@@ -18,30 +18,21 @@ defmodule Raga.Groq.Client do
   end
 
   @doc """
-  Generate text embeddings by using the Groq chat API to generate embeddings
-  We do this by asking the LLM to generate a JSON representation of embeddings
-  """
-  def generate_embeddings(text) when is_binary(text) do
-    # Use Groq to simulate generating embeddings
-    # This is less efficient than a dedicated embeddings API but works for demonstration
-    # For a real application, consider using OpenAI's embedding API instead
-
-    # Use a hash-based approach that's consistent for the same input text
-    embedding = generate_deterministic_embedding(text)
-    {:ok, embedding}
-  end
-
-  @doc """
   Generate a response using the Groq chat API with retrieved context
+  If conversation_history is provided, it will be used to maintain context
   """
-  def generate_response(query, context) do
+  def generate_response(query, context, conversation_history \\ nil) do
     # 30 second timeout
-    GenServer.call(__MODULE__, {:chat, query, context}, 30_000)
+    GenServer.call(__MODULE__, {:chat, query, context, conversation_history}, 30_000)
   end
 
   # GenServer callbacks
 
-  def handle_call({:chat, query, context}, _from, %{api_key: api_key} = state) do
+  def handle_call(
+        {:chat, query, context, conversation_history},
+        _from,
+        %{api_key: api_key} = state
+      ) do
     url = "#{@base_url}/chat/completions"
 
     headers = [
@@ -53,24 +44,59 @@ defmodule Raga.Groq.Client do
     You are a helpful AI assistant that answers questions based on provided context.
     If the context doesn't contain relevant information, indicate that you don't know rather than making up an answer.
     Always cite your sources by referring to the document title in your answer.
+    Maintain a conversational style when responding to follow-up questions.
     """
 
     formatted_context = format_context(context)
 
-    messages = [
-      %{role: "system", content: system_prompt},
-      %{
-        role: "user",
-        content: """
-        Context information:
-        #{formatted_context}
+    # Decide which messages to use based on conversation history
+    messages =
+      if conversation_history && length(conversation_history) > 0 do
+        # Create initial system message
+        system_message = %{role: "system", content: system_prompt}
 
-        Question: #{query}
+        # Create a context message that will be inserted just before the latest user query
+        context_message = %{
+          role: "system",
+          content: """
+          Here is relevant context information to help answer the latest question:
+          #{formatted_context}
 
-        Please answer the question based only on the provided context.
-        """
-      }
-    ]
+          Use this context to inform your next response.
+          """
+        }
+
+        # Use existing conversation history, but insert context before the last user message
+        # This approach keeps the full conversation history intact but adds context
+        history_length = length(conversation_history)
+
+        if history_length > 1 do
+          # Insert context message before the latest user message
+          {earlier_messages, [last_message]} =
+            Enum.split(conversation_history, history_length - 1)
+
+          [system_message] ++ earlier_messages ++ [context_message, last_message]
+        else
+          # If there's only one message (the current user query), add context before it
+          [system_message, context_message] ++ conversation_history
+        end
+      else
+        # No conversation history, use simple prompt with context
+        [
+          %{role: "system", content: system_prompt},
+          %{
+            role: "user",
+            content: """
+            Context information:
+            #{formatted_context}
+
+            Question: #{query}
+
+            Please answer the question based only on the provided context.
+            """
+          }
+        ]
+      end
 
     body =
       Jason.encode!(%{
@@ -113,57 +139,5 @@ defmodule Raga.Groq.Client do
       """
     end)
     |> Enum.join("\n\n")
-  end
-
-  # Generate a deterministic embedding for a text string
-  # In a real app, you would use a real embedding model from OpenAI, Cohere, etc.
-  # This is just for demonstration purposes when we don't have an embeddings API
-  defp generate_deterministic_embedding(text) do
-    # Normalize the text - lowercase and remove extra whitespace
-    normalized_text =
-      text
-      |> String.downcase()
-      |> String.replace(~r/\s+/, " ")
-      |> String.trim()
-
-    # Generate a hash of the text
-    hash = :crypto.hash(:sha256, normalized_text) |> Base.encode16()
-
-    # Create a more meaningful embedding by including some text-based features
-    # These are simple but help create better similarity measures than random
-    word_count = normalized_text |> String.split() |> length()
-    char_count = String.length(normalized_text)
-
-    # Use parts of the hash to seed the embedding
-    chars = String.to_charlist(hash)
-
-    # For consistency, let's create a 384-dimensional vector (smaller than 1536 but still useful)
-    # We'll generate values in the range [-1, 1] based on the hash
-    embedding =
-      0..383
-      |> Enum.map(fn i ->
-        # Get a character from the hash as a seed
-        char_index = rem(i, length(chars))
-        char_value = Enum.at(chars, char_index)
-
-        # Combine with simple features for more meaningful patterns
-        value =
-          case rem(i, 4) do
-            # Range [-1, 1]
-            0 -> char_value / 128.0 - 1.0
-            # Sine wave pattern
-            1 -> :math.sin(char_value / 10.0)
-            # Word count influence
-            2 -> :math.cos((char_value + word_count) / 20.0)
-            # Char count influence
-            3 -> :math.tanh((char_value + char_count) / 40.0)
-          end
-
-        # Normalize to range [-1, 1]
-        max(-1.0, min(1.0, value))
-      end)
-
-    # Return the embedding
-    embedding
   end
 end

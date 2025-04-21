@@ -17,6 +17,9 @@ defmodule Raga.Application do
       # Start API clients
       Raga.Ollama.Client,  # Ollama for local embeddings
       Raga.Groq.Client,    # Groq for LLM responses
+      # Start session manager and conversation cleaner
+      Raga.SessionManager,
+      Raga.ConversationCleaner,
       # Start to serve requests, typically the last entry
       RagaWeb.Endpoint
     ]

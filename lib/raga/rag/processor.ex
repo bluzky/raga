@@ -80,11 +80,11 @@ defmodule Raga.RAG.Processor do
   Process a query by:
   1. Generating embedding for the query using Ollama
   2. Finding relevant document chunks
-  3. Generating a response using the Groq LLM
-  4. Saving the query and response
+  3. Generating a response using the Groq LLM, including conversation context if provided
+  4. Saving the query, response, and conversation context
   """
-  def process_query(query_text) do
-    Logger.info("Processing query: #{query_text}")
+  def process_query(query_text, session_id \\ nil) do
+    Logger.info("Processing query: #{query_text}, session_id: #{session_id || "none"}")
 
     # Generate embedding for the query using Ollama
     case OllamaClient.generate_embeddings(query_text) do
@@ -109,8 +109,23 @@ defmodule Raga.RAG.Processor do
             Logger.debug("Chunk from '#{title}' with similarity: #{similarity}")
           end)
 
-          # Generate response from Groq
-          case GroqClient.generate_response(query_text, chunks) do
+          # Get conversation history if session_id is provided
+          conversation_history = if session_id do
+            # Get or create conversation
+            {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
+            
+            # Add user message to conversation
+            {:ok, conversation} = Raga.RAG.add_message_to_conversation(conversation, "user", query_text)
+            
+            # Format conversation history for LLM
+            Raga.RAG.Conversation.format_messages_for_llm(conversation.messages)
+          else
+            # No conversation context
+            [%{role: "user", content: query_text}]
+          end
+          
+          # Generate response from Groq with conversation history
+          case GroqClient.generate_response(query_text, chunks, conversation_history) do
             {:ok, response} ->
               # Save query and response
               {:ok, query} =
@@ -121,8 +136,18 @@ defmodule Raga.RAG.Processor do
                   embedding: embedding
                 })
                 |> Repo.insert()
+              
+              # If we have a session, add assistant response to conversation
+              if session_id do
+                {:ok, conversation} = Raga.RAG.get_or_create_conversation(session_id)
+                {:ok, _} = Raga.RAG.add_message_to_conversation(conversation, "assistant", response)
+              end
 
-              {:ok, %{response: response, sources: extract_sources(chunks)}}
+              {:ok, %{
+                response: response, 
+                sources: extract_sources(chunks),
+                conversation_id: session_id
+              }}
 
             {:error, reason} ->
               Logger.error("Failed to generate response: #{inspect(reason)}")
